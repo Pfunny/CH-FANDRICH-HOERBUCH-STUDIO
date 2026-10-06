@@ -1,0 +1,96 @@
+name: Hörbuch TTS
+
+on:
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "Kapiteltext"
+        required: true
+        type: string
+      filename:
+        description: "Dateiname ohne Endung"
+        required: true
+        default: "kapitel"
+        type: string
+      voice:
+        description: "OpenAI Stimme"
+        required: true
+        default: "alloy"
+        type: choice
+        options:
+          - alloy
+          - echo
+          - fable
+          - onyx
+          - nova
+          - shimmer
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prüfe API Secret
+        shell: bash
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::GitHub Secret OPENAI_API_KEY fehlt."
+            exit 1
+          fi
+
+      - name: Erzeuge MP3
+        shell: python
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          INPUT_TEXT: ${{ inputs.text }}
+          OUTPUT_NAME: ${{ inputs.filename }}
+          VOICE: ${{ inputs.voice }}
+        run: |
+          import json, os, re, urllib.request, urllib.error
+
+          text = os.environ["INPUT_TEXT"].strip()
+          if not text:
+              raise SystemExit("Kapiteltext ist leer.")
+          if len(text) > 4000:
+              raise SystemExit("Für v8.0 bitte maximal 4000 Zeichen pro Lauf verwenden.")
+
+          name = re.sub(r"[^A-Za-z0-9._-]+", "_", os.environ["OUTPUT_NAME"]).strip("._") or "kapitel"
+          body = json.dumps({
+              "model": "gpt-4o-mini-tts",
+              "voice": os.environ["VOICE"],
+              "input": text,
+              "response_format": "mp3"
+          }).encode("utf-8")
+
+          req = urllib.request.Request(
+              "https://api.openai.com/v1/audio/speech",
+              data=body,
+              headers={
+                  "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
+                  "Content-Type": "application/json"
+              },
+              method="POST"
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=180) as response:
+                  audio = response.read()
+          except urllib.error.HTTPError as e:
+              detail = e.read().decode("utf-8", "replace")
+              raise SystemExit(f"OpenAI API Fehler {e.code}: {detail}")
+
+          os.makedirs("output", exist_ok=True)
+          with open(f"output/{name}.mp3", "wb") as f:
+              f.write(audio)
+          print(f"MP3 erstellt: output/{name}.mp3 ({len(audio)} Bytes)")
+
+      - name: Hörbuchdatei bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoerbuch-${{ inputs.filename }}
+          path: output/*.mp3
+          if-no-files-found: error
+          retention-days: 30
