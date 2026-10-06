@@ -1,0 +1,104 @@
+name: Hörbuch Sprachgenerator
+
+on:
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "Text für die Sprachausgabe"
+        required: true
+        type: string
+      voice:
+        description: "OpenAI Stimme"
+        required: true
+        default: "nova"
+        type: choice
+        options:
+          - nova
+          - alloy
+          - shimmer
+          - onyx
+          - echo
+          - fable
+      format:
+        description: "Audioformat"
+        required: true
+        default: "mp3"
+        type: choice
+        options:
+          - mp3
+          - wav
+      filename:
+        description: "Dateiname ohne Endung"
+        required: true
+        default: "hoerbuch-track"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: API-Schlüssel prüfen
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::GitHub Secret OPENAI_API_KEY fehlt."
+            exit 1
+          fi
+
+      - name: Textdatei vorbereiten
+        env:
+          TTS_TEXT: ${{ inputs.text }}
+        run: printf '%s' "$TTS_TEXT" > input.txt
+
+      - name: Sprache erzeugen
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          VOICE: ${{ inputs.voice }}
+          FORMAT: ${{ inputs.format }}
+          FILENAME: ${{ inputs.filename }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, pathlib
+          text = pathlib.Path("input.txt").read_text(encoding="utf-8")
+          payload = {
+              "model": "gpt-4o-mini-tts",
+              "voice": os.environ["VOICE"],
+              "input": text,
+              "instructions": "Sprich auf Deutsch. Warm, natürlich und professionell. Für ein Kinder- und Gute-Nacht-Hörbuch ruhig, freundlich und geborgen sprechen. Keine Regieanweisungen vorlesen.",
+              "response_format": os.environ["FORMAT"],
+          }
+          req = urllib.request.Request(
+              "https://api.openai.com/v1/audio/speech",
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=180) as r:
+                  audio = r.read()
+          except urllib.error.HTTPError as e:
+              print(e.read().decode("utf-8", errors="replace"))
+              raise
+          safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in os.environ["FILENAME"]).strip("_") or "hoerbuch-track"
+          out = safe + "." + os.environ["FORMAT"]
+          pathlib.Path(out).write_bytes(audio)
+          pathlib.Path("artifact-name.txt").write_text(out, encoding="utf-8")
+          print("Erzeugt:", out, len(audio), "Bytes")
+          PY
+
+      - name: Audiodatei bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoerbuch-audio
+          path: |
+            *.mp3
+            *.wav
+          if-no-files-found: error
+          retention-days: 30
