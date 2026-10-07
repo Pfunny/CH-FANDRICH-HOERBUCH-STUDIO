@@ -137,6 +137,19 @@ jobs:
                   raise RuntimeError(f"Keine Audiodaten für Segment: {exc}") from exc
               pathlib.Path(outpath).write_bytes(audio)
 
+          def bundle_segments(segments, max_chars=2200):
+              """Bündelt aufeinanderfolgende Passagen derselben Rolle, um API-Aufrufe zu sparen."""
+              bundled=[]
+              for role,spoken in segments:
+                  spoken=spoken.strip()
+                  if not spoken:
+                      continue
+                  if bundled and bundled[-1][0]==role and len(bundled[-1][1])+len(spoken)+1 <= max_chars:
+                      bundled[-1]=(role,bundled[-1][1]+" "+spoken)
+                  else:
+                      bundled.append((role,spoken))
+              return bundled
+
           if mode.startswith("Komplettes Buch"):
               # Kapitelüberschriften erkennen: "Kapitel 1", "Kapitel 2 – Titel", usw.
               chapter_re=re.compile(r"(?im)^\s*(Kapitel\s+\d+(?:\s*[-–—:]\s*[^\n]+)?)\s*$")
@@ -162,6 +175,8 @@ jobs:
               profile=os.environ["VOICE"]
               voice,style=profiles.get(profile,("Kore","warm, natürlich und professionell"))
 
+              request_count=0
+              max_requests=8  # Reserve im Free-Tier; verhindert unnötiges Ausschöpfen.
               for idx,(title,body) in enumerate(chapters,1):
                   # Für jedes Kapitel Rollen wie im Mehrsprecher-Modus erkennen.
                   segments=[]
@@ -181,6 +196,7 @@ jobs:
                       else:
                           segments.append((current_role,spoken))
 
+                  segments=bundle_segments(segments)
                   role_order=[]
                   for role,_ in segments:
                       if role not in role_order:
@@ -188,9 +204,16 @@ jobs:
                   role_map={role:role_profile(role,i) for i,role in enumerate(role_order)}
                   segfiles=[]
                   for si,(role,spoken) in enumerate(segments):
+                      if request_count >= max_requests:
+                          raise RuntimeError(
+                              f"Sicherheitsstopp nach {request_count} Gemini-Aufrufen. "
+                              "Das kostenlose Tageskontingent wird geschont. "
+                              "Bitte später fortsetzen oder einen kürzeren Test verwenden."
+                          )
                       rv,rs=role_map[role]
                       p=outdir/f"tmp_{idx:03d}_{si:04d}.wav"
                       synth(spoken,rv,rs,str(p))
+                      request_count += 1
                       segfiles.append(p)
                       time.sleep(0.15)
 
@@ -240,6 +263,7 @@ jobs:
               if not segments:
                   raise SystemExit("Keine sprechbaren Textsegmente gefunden.")
 
+              segments=bundle_segments(segments)
               role_order=[]
               for role,_ in segments:
                   if role not in role_order:
