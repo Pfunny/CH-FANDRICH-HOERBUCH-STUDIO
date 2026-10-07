@@ -1,0 +1,91 @@
+name: Hörbuch Kokoro Lokal
+
+on:
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "Text für die Sprachausgabe"
+        required: true
+        type: string
+      voice:
+        description: "Kokoro Stimme"
+        required: true
+        default: "af_heart"
+        type: string
+      filename:
+        description: "Dateiname ohne Endung"
+        required: true
+        default: "kokoro-hoerbuch"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  kokoro-local:
+    # Läuft ausschließlich auf einem Rechner/Server, den der Nutzer selbst
+    # als GitHub Actions self-hosted Runner registriert hat.
+    runs-on: [self-hosted, kokoro]
+    timeout-minutes: 120
+
+    steps:
+      - name: Repository laden
+        uses: actions/checkout@v4
+
+      - name: Lokale Werkzeuge prüfen
+        shell: bash
+        run: |
+          command -v curl >/dev/null || { echo "::error::curl fehlt."; exit 1; }
+          command -v ffmpeg >/dev/null || { echo "::error::ffmpeg fehlt."; exit 1; }
+
+      - name: KokoroTTS prüfen
+        shell: bash
+        run: |
+          if ! curl --fail --silent --max-time 10 http://127.0.0.1:7860/ >/dev/null; then
+            echo "::error::KokoroTTS ist lokal auf Port 7860 nicht erreichbar."
+            echo "Starte zuerst: docker compose -f docker-compose.kokoro.yml up -d"
+            exit 1
+          fi
+
+      - name: Text vorbereiten
+        shell: bash
+        env:
+          TTS_TEXT: ${{ inputs.text }}
+        run: printf '%s' "$TTS_TEXT" > input.txt
+
+      - name: Kokoro Audio erzeugen
+        shell: bash
+        env:
+          VOICE: ${{ inputs.voice }}
+          FILENAME: ${{ inputs.filename }}
+        run: |
+          SAFE=$(printf '%s' "$FILENAME" | tr -cs 'A-Za-z0-9_-' '_')
+          [ -n "$SAFE" ] || SAFE="kokoro-hoerbuch"
+          python3 - <<'PY'
+          import json, os, pathlib
+          payload = {
+              "model": "kokoro",
+              "input": pathlib.Path("input.txt").read_text(encoding="utf-8"),
+              "voice": os.environ["VOICE"],
+              "response_format": "wav",
+              "speed": 1.0
+          }
+          pathlib.Path("request.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+          PY
+          curl --fail --show-error --silent \
+            -X POST http://127.0.0.1:7860/v1/audio/speech \
+            -H "Content-Type: application/json" \
+            --data-binary @request.json \
+            --output kokoro-output.wav
+          test -s kokoro-output.wav || { echo "::error::Keine Audiodatei erzeugt."; exit 1; }
+          ffmpeg -y -i kokoro-output.wav -codec:a libmp3lame -b:a 192k "$SAFE.mp3"
+          rm -f request.json kokoro-output.wav
+          echo "AUDIO_FILE=$SAFE.mp3" >> "$GITHUB_ENV"
+
+      - name: Audiodatei bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: kokoro-hoerbuch-audio
+          path: ${{ env.AUDIO_FILE }}
+          if-no-files-found: error
+          retention-days: 30
