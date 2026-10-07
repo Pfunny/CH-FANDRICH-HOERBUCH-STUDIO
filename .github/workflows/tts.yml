@@ -3,6 +3,14 @@ name: Hörbuch Sprachgenerator
 on:
   workflow_dispatch:
     inputs:
+      engine:
+        description: "Sprachsystem"
+        required: true
+        default: "Kokoro lokal – ohne TTS-Tageslimit"
+        type: choice
+        options:
+          - "Kokoro lokal – ohne TTS-Tageslimit"
+          - "Gemini Cloud"
       text:
         description: "Text für die Sprachausgabe"
         required: true
@@ -54,10 +62,14 @@ jobs:
       - name: Gemini API-Schlüssel prüfen
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ENGINE: ${{ inputs.engine }}
         run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "::error::GitHub Secret GEMINI_API_KEY fehlt."
+          if [[ "$ENGINE" == "Gemini Cloud" && -z "$GEMINI_API_KEY" ]]; then
+            echo "::error::Für Gemini Cloud fehlt das GitHub Secret GEMINI_API_KEY."
             exit 1
+          fi
+          if [[ "$ENGINE" == "Kokoro lokal – ohne TTS-Tageslimit" ]]; then
+            echo "Kokoro-Modus gewählt: kein Gemini-API-Schlüssel erforderlich."
           fi
 
       - name: Textdatei vorbereiten
