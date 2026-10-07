@@ -133,11 +133,46 @@ jobs:
           ffmpeg -hide_banner -loglevel error -f concat -safe 0 -i master.txt -c copy "${{ inputs.book_name }}_MASTER.mp3"
           rm -rf chapters master.txt
 
+      - name: Professionelles Audio-Mastering
+        shell: bash
+        run: |
+          cd output
+          MASTER="${{ inputs.book_name }}_MASTER.mp3"
+          ffmpeg -hide_banner -loglevel error -i "$MASTER"             -af "loudnorm=I=-19:LRA=7:TP=-2"             -ar 44100 -ac 2 -b:a 192k             "${{ inputs.book_name }}_MASTERED.mp3"
+          test -s "${{ inputs.book_name }}_MASTERED.mp3"
+
+      - name: Technische Qualitätsprüfung
+        shell: bash
+        run: |
+          cd output
+          FILE="${{ inputs.book_name }}_MASTERED.mp3"
+          DURATION=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$FILE")
+          SIZE=$(stat -c%s "$FILE")
+          echo "Dauer: $DURATION Sekunden"
+          echo "Dateigröße: $SIZE Bytes"
+          test "$SIZE" -gt 1000
+          ffmpeg -v error -i "$FILE" -f null - 2> audio-errors.txt || true
+          if [ -s audio-errors.txt ]; then
+            echo "::warning::ffmpeg meldet mögliche Audiofehler:"
+            cat audio-errors.txt
+          else
+            echo "Technische Audio-Prüfung bestanden."
+          fi
+
+      - name: MP3-Metadaten setzen
+        shell: bash
+        run: |
+          cd output
+          IN="${{ inputs.book_name }}_MASTERED.mp3"
+          OUT="${{ inputs.book_name }}_FINAL.mp3"
+          ffmpeg -hide_banner -loglevel error -i "$IN" -c copy             -metadata title="${{ inputs.book_name }}"             -metadata artist="Christopher Fandrich"             -metadata album="${{ inputs.book_name }}"             -metadata comment="CH.FANDRICH Hörbuch Studio v10"             "$OUT"
+          test -s "$OUT"
+
       - name: Produktionsübersicht
         shell: bash
         run: |
           echo "## CH.FANDRICH Hörbuch-Produktion" >> "$GITHUB_STEP_SUMMARY"
-          echo "Einzelne Kapitel und Hörbuch-Master wurden erstellt." >> "$GITHUB_STEP_SUMMARY"
+          echo "Einzelne Kapitel, Roh-Master, normalisierter Master und FINAL-MP3 wurden erstellt." >> "$GITHUB_STEP_SUMMARY"
           ls -lh output >> "$GITHUB_STEP_SUMMARY"
 
       - name: Audio-Artefakte hochladen
