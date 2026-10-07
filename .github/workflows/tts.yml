@@ -174,13 +174,34 @@ jobs:
                   files.append(p)
                   time.sleep(0.15)
 
-              # Kurze natürliche Pause zwischen Sprecherwechseln.
+              # Rollenübersicht für die Produktion speichern.
+              role_lines=["CH.FANDRICH Hörbuchstudio – Sprecherbelegung", ""]
+              for role,(v,style) in role_map.items():
+                  role_lines.append(f"{role}: {v} – {style}")
+              pathlib.Path(safe+"_sprecher.txt").write_text("\n".join(role_lines)+"\n",encoding="utf-8")
+
+              # Echte natürliche Pause zwischen Sprecherwechseln erzeugen.
+              # 350 ms hält Dialoge flüssig, ohne dass die Stimmen hart aneinanderstoßen.
+              pause="speaker_pause.wav"
+              subprocess.run([
+                  "ffmpeg","-y","-f","lavfi","-i",
+                  "anullsrc=r=24000:cl=mono","-t","0.35",
+                  "-c:a","pcm_s16le",pause
+              ],check=True)
+
               concat=[]
               for i,p in enumerate(files):
                   concat.append(f"file '{p}'")
+                  if i < len(files)-1:
+                      concat.append(f"file '{pause}'")
               pathlib.Path("concat.txt").write_text("\n".join(concat)+"\n",encoding="utf-8")
               merged=safe+"_merged.wav"
-              subprocess.run(["ffmpeg","-y","-f","concat","-safe","0","-i","concat.txt","-c","copy",merged],check=True)
+              # Neu kodieren, damit unterschiedliche Segment-Header/Audioeigenschaften
+              # zuverlässig in eine saubere Masterdatei überführt werden.
+              subprocess.run([
+                  "ffmpeg","-y","-f","concat","-safe","0","-i","concat.txt",
+                  "-ar","24000","-ac","1","-c:a","pcm_s16le",merged
+              ],check=True)
               if fmt=="mp3":
                   out=pathlib.Path(safe+".mp3")
                   subprocess.run(["ffmpeg","-y","-i",merged,"-codec:a","libmp3lame","-b:a","192k",str(out)],check=True)
@@ -191,6 +212,7 @@ jobs:
                   pathlib.Path(p).unlink(missing_ok=True)
               pathlib.Path(merged).unlink(missing_ok=True)
               pathlib.Path("concat.txt").unlink(missing_ok=True)
+              pathlib.Path(pause).unlink(missing_ok=True)
           else:
               profile=os.environ["VOICE"]
               voice,style=profiles.get(profile,("Kore","warm, natürlich und professionell"))
@@ -213,5 +235,6 @@ jobs:
           path: |
             *.mp3
             *.wav
+            *_sprecher.txt
           if-no-files-found: error
           retention-days: 30
