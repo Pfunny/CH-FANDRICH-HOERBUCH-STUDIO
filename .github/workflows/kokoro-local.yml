@@ -27,6 +27,21 @@ on:
           - af_nicole
           - am_adam
           - am_michael
+      book_title:
+        description: "Buchtitel"
+        required: true
+        default: "Die Chroniken von Goldtal"
+        type: string
+      author:
+        description: "Autor"
+        required: true
+        default: "Christopher Fandrich"
+        type: string
+      intro_outro:
+        description: "Intro und Outro sprechen"
+        required: true
+        default: true
+        type: boolean
       filename:
         description: "Dateiname ohne Endung"
         required: true
@@ -75,6 +90,9 @@ jobs:
           MODE: ${{ inputs.mode }}
           VOICE: ${{ inputs.voice }}
           FILENAME: ${{ inputs.filename }}
+          BOOK_TITLE: ${{ inputs.book_title }}
+          AUTHOR: ${{ inputs.author }}
+          INTRO_OUTRO: ${{ inputs.intro_outro }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib, re, subprocess, urllib.request
@@ -82,15 +100,23 @@ jobs:
           text=pathlib.Path("input.txt").read_text(encoding="utf-8").strip()
           if not text: raise SystemExit("Kein Text vorhanden.")
           mode=os.environ["MODE"]; narrator=os.environ["VOICE"]
+          book_title=os.environ.get("BOOK_TITLE","Hörbuch").strip() or "Hörbuch"
+          author=os.environ.get("AUTHOR","Christopher Fandrich").strip() or "Christopher Fandrich"
+          intro_outro=os.environ.get("INTRO_OUTRO","true").lower()=="true"
           safe=re.sub(r"[^A-Za-z0-9_-]+","_",os.environ["FILENAME"]).strip("_") or "kokoro-hoerbuch"
           outdir=pathlib.Path("output"); outdir.mkdir(exist_ok=True)
 
           voices=[narrator,"af_bella","am_adam","af_nicole","am_michael"]
           role_voice={"erzähler":narrator,"erzaehler":narrator,"narrator":narrator}
           def voice_for(role):
-              k=role.casefold()
+              import hashlib
+              k=role.casefold().strip()
               if k in role_voice: return role_voice[k]
-              v=voices[len(role_voice)%len(voices)]
+              # Stabil über das gesamte Buch und auch zwischen neuen Läufen:
+              # derselbe Rollenname erhält immer dieselbe Stimme.
+              digest=int(hashlib.sha256(k.encode("utf-8")).hexdigest()[:8],16)
+              candidates=[v for v in voices if v != narrator] or voices
+              v=candidates[digest % len(candidates)]
               role_voice[k]=v
               return v
 
@@ -142,19 +168,48 @@ jobs:
                       if body: chapters.append((m.group(1),body))
               else: chapters=[("Kapitel 1",text)]
               chapter_files=[]
+              master_parts=[]
+              # Intro
+              if intro_outro:
+                  intro=render([("Erzähler",f"{book_title}. Ein Hörbuch von {author}.")],"00_intro")
+                  master_parts.append(intro)
+
+              chapter_pause=outdir/"chapter_pause.wav"
+              subprocess.run(["ffmpeg","-loglevel","error","-y","-f","lavfi","-i","anullsrc=r=24000:cl=mono","-t","1.5","-c:a","pcm_s16le",str(chapter_pause)],check=True)
+              chapter_pause_mp3=outdir/"chapter_pause.mp3"
+              subprocess.run(["ffmpeg","-loglevel","error","-y","-i",str(chapter_pause),"-codec:a","libmp3lame","-b:a","192k",str(chapter_pause_mp3)],check=True)
+              chapter_pause.unlink(missing_ok=True)
+
               for i,(title,body) in enumerate(chapters,1):
-                  chapter_files.append(render(segments(body,True),f"{i:02d}_kapitel"))
+                  # Kapitelansage wird mit derselben Erzählerstimme gesprochen.
+                  announcement=render([("Erzähler",title)],f"{i:02d}_ansage")
+                  content=render(segments(body,True),f"{i:02d}_kapitel")
+                  # Eine vollständige Kapiteldatei inklusive Ansage erzeugen.
+                  cl=outdir/f"{i:02d}_chapter_concat.txt"
+                  cl.write_text(f"file '{announcement.resolve()}'\nfile '{content.resolve()}'\n")
+                  chapter=outdir/f"{i:02d}_komplett.mp3"
+                  subprocess.run(["ffmpeg","-loglevel","error","-y","-f","concat","-safe","0","-i",str(cl),"-codec:a","libmp3lame","-b:a","192k","-metadata",f"title={title}","-metadata",f"artist={author}","-metadata",f"album={book_title}",str(chapter)],check=True)
+                  cl.unlink(missing_ok=True)
+                  chapter_files.append(chapter)
+                  master_parts.extend([chapter,chapter_pause_mp3])
+
+              if intro_outro:
+                  outro=render([("Erzähler",f"Du hast {book_title} gehört. Geschrieben von {author}. Ende.")],"99_outro")
+                  master_parts.append(outro)
+              elif master_parts and master_parts[-1] == chapter_pause_mp3:
+                  master_parts.pop()
+
               ml=outdir/"master.txt"
-              ml.write_text("\n".join(f"file '{p.resolve()}'" for p in chapter_files)+"\n")
+              ml.write_text("\n".join(f"file '{p.resolve()}'" for p in master_parts)+"\n")
               final=pathlib.Path(safe+".mp3")
-              subprocess.run(["ffmpeg","-loglevel","error","-y","-f","concat","-safe","0","-i",str(ml),"-af","loudnorm=I=-19:LRA=7:TP=-2","-codec:a","libmp3lame","-b:a","192k",str(final)],check=True)
+              subprocess.run(["ffmpeg","-loglevel","error","-y","-f","concat","-safe","0","-i",str(ml),"-af","loudnorm=I=-19:LRA=7:TP=-2","-codec:a","libmp3lame","-b:a","192k","-metadata",f"title={book_title}","-metadata",f"artist={author}","-metadata",f"album={book_title}","-metadata","genre=Audiobook",str(final)],check=True)
               ml.unlink(missing_ok=True)
           else:
               multi=mode.startswith("Automatisch")
               produced=render(segments(text,multi),"track")
               final=pathlib.Path(safe+".mp3"); produced.replace(final)
 
-          manifest=["CH.FANDRICH Hörbuchstudio – Kokoro Cloud","",f"Modus: {mode}","", "Sprecherbelegung:"]
+          manifest=["CH.FANDRICH Hörbuchstudio – Kokoro Cloud","",f"Titel: {book_title}",f"Autor: {author}",f"Modus: {mode}",f"Intro/Outro: {'Ja' if intro_outro else 'Nein'}","", "Sprecherbelegung:"]
           manifest += [f"{role}: {voice}" for role,voice in role_voice.items()]
           pathlib.Path(safe+"_produktion.txt").write_text("\n".join(manifest)+"\n",encoding="utf-8")
           print("Fertig:",final,final.stat().st_size,"Bytes")
