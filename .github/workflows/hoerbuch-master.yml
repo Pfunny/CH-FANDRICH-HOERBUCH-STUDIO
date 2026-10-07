@@ -1,0 +1,149 @@
+name: Hörbuch Master
+
+on:
+  workflow_dispatch:
+    inputs:
+      manuscript:
+        description: "Manuskript. Kapitelüberschriften müssen mit 'Kapitel' beginnen."
+        required: true
+        type: string
+      book_name:
+        description: "Hörbuch-Dateiname"
+        required: true
+        default: "mein-hoerbuch"
+        type: string
+      voice:
+        description: "OpenAI Stimme"
+        required: true
+        default: "nova"
+        type: choice
+        options:
+          - alloy
+          - echo
+          - fable
+          - onyx
+          - nova
+          - shimmer
+
+permissions:
+  contents: read
+
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - name: Secret prüfen
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error::GitHub Secret OPENAI_API_KEY fehlt."
+            exit 1
+          fi
+
+      - name: Kapitel erzeugen
+        shell: python
+        env:
+          MANUSCRIPT: ${{ inputs.manuscript }}
+          BOOK_NAME: ${{ inputs.book_name }}
+          VOICE: ${{ inputs.voice }}
+        run: |
+          import json, os, re, urllib.request, urllib.error
+
+          text = os.environ["MANUSCRIPT"].replace("\r", "").strip()
+          if not text:
+              raise SystemExit("Manuskript ist leer.")
+
+          lines = text.split("\n")
+          chapters, title, buf = [], "Kapitel 1", []
+          heading = re.compile(r"^\s*(?:#{1,3}\s*)?(Kapitel\s+[0-9IVXLCDM]+.*)$", re.I)
+
+          for line in lines:
+              m = heading.match(line)
+              if m:
+                  if "\n".join(buf).strip():
+                      chapters.append((title, "\n".join(buf).strip()))
+                  title, buf = m.group(1).strip(), []
+              else:
+                  buf.append(line)
+          if "\n".join(buf).strip():
+              chapters.append((title, "\n".join(buf).strip()))
+          if not chapters:
+              chapters = [("Kapitel 1", text)]
+
+          os.makedirs("output/chapters", exist_ok=True)
+
+          def tts(chunk):
+              body = json.dumps({
+                  "model": "gpt-4o-mini-tts",
+                  "voice": os.environ["VOICE"],
+                  "input": chunk,
+                  "response_format": "mp3"
+              }).encode()
+              req = urllib.request.Request(
+                  "https://api.openai.com/v1/audio/speech",
+                  data=body,
+                  headers={"Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
+                           "Content-Type": "application/json"},
+                  method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as r:
+                      return r.read()
+              except urllib.error.HTTPError as e:
+                  raise SystemExit("OpenAI API Fehler %s: %s" %
+                                   (e.code, e.read().decode("utf-8", "replace")))
+
+          for n, (chapter_title, chapter_text) in enumerate(chapters, 1):
+              chunks, rest, limit = [], chapter_text, 3500
+              while rest:
+                  if len(rest) <= limit:
+                      chunks.append(rest); break
+                  cut = max(rest.rfind("\n", 0, limit), rest.rfind(". ", 0, limit))
+                  if cut < limit // 2: cut = limit
+                  chunks.append(rest[:cut + 1].strip())
+                  rest = rest[cut + 1:].strip()
+
+              safe = re.sub(r"[^A-Za-z0-9._-]+", "_", chapter_title).strip("._")
+              part_names = []
+              for p, chunk in enumerate(chunks, 1):
+                  path = "output/chapters/%03d_%s_part_%03d.mp3" % (n, safe, p)
+                  with open(path, "wb") as fh:
+                      fh.write(tts(chunk))
+                  part_names.append(os.path.basename(path))
+
+              with open("output/chapters/chapter_%03d.txt" % n, "w") as fh:
+                  for part in part_names:
+                      fh.write("file '%s'\n" % part)
+              print("Kapitel %d/%d erzeugt: %s" % (n, len(chapters), chapter_title))
+
+          print("CHAPTER_COUNT=%d" % len(chapters))
+
+      - name: Kapitel zusammenführen
+        shell: bash
+        run: |
+          cd output/chapters
+          for list in chapter_*.txt; do
+            num="${list#chapter_}"; num="${num%.txt}"
+            ffmpeg -hide_banner -loglevel error -f concat -safe 0 -i "$list" -c copy "../chapter_${num}.mp3"
+          done
+          cd ..
+          for f in chapter_*.mp3; do echo "file '$f'"; done > master.txt
+          ffmpeg -hide_banner -loglevel error -f concat -safe 0 -i master.txt -c copy "${{ inputs.book_name }}_MASTER.mp3"
+          rm -rf chapters master.txt
+
+      - name: Produktionsübersicht
+        shell: bash
+        run: |
+          echo "## CH.FANDRICH Hörbuch-Produktion" >> "$GITHUB_STEP_SUMMARY"
+          echo "Einzelne Kapitel und Hörbuch-Master wurden erstellt." >> "$GITHUB_STEP_SUMMARY"
+          ls -lh output >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Audio-Artefakte hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: hoerbuch-${{ inputs.book_name }}
+          path: output/*.mp3
+          if-no-files-found: error
+          retention-days: 30
