@@ -55,37 +55,63 @@ jobs:
           text = os.environ["INPUT_TEXT"].strip()
           if not text:
               raise SystemExit("Kapiteltext ist leer.")
-          if len(text) > 4000:
-              raise SystemExit("Für v8.0 bitte maximal 4000 Zeichen pro Lauf verwenden.")
 
           name = re.sub(r"[^A-Za-z0-9._-]+", "_", os.environ["OUTPUT_NAME"]).strip("._") or "kapitel"
-          body = json.dumps({
-              "model": "gpt-4o-mini-tts",
-              "voice": os.environ["VOICE"],
-              "input": text,
-              "response_format": "mp3"
-          }).encode("utf-8")
-
-          req = urllib.request.Request(
-              "https://api.openai.com/v1/audio/speech",
-              data=body,
-              headers={
-                  "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
-                  "Content-Type": "application/json"
-              },
-              method="POST"
-          )
-          try:
-              with urllib.request.urlopen(req, timeout=180) as response:
-                  audio = response.read()
-          except urllib.error.HTTPError as e:
-              detail = e.read().decode("utf-8", "replace")
-              raise SystemExit(f"OpenAI API Fehler {e.code}: {detail}")
+          # Lange Kapitel automatisch in sichere Textblöcke teilen.
+          limit = 3500
+          chunks = []
+          rest = text
+          while rest:
+              if len(rest) <= limit:
+                  chunks.append(rest)
+                  break
+              cut = max(rest.rfind("\n", 0, limit), rest.rfind(". ", 0, limit))
+              if cut < limit // 2:
+                  cut = limit
+              chunks.append(rest[:cut + 1].strip())
+              rest = rest[cut + 1:].strip()
 
           os.makedirs("output", exist_ok=True)
-          with open(f"output/{name}.mp3", "wb") as f:
-              f.write(audio)
-          print(f"MP3 erstellt: output/{name}.mp3 ({len(audio)} Bytes)")
+          parts = []
+          for i, chunk in enumerate(chunks, 1):
+              body = json.dumps({
+                  "model": "gpt-4o-mini-tts",
+                  "voice": os.environ["VOICE"],
+                  "input": chunk,
+                  "response_format": "mp3"
+              }).encode("utf-8")
+              req = urllib.request.Request(
+                  "https://api.openai.com/v1/audio/speech",
+                  data=body,
+                  headers={
+                      "Authorization": "Bearer " + os.environ["OPENAI_API_KEY"],
+                      "Content-Type": "application/json"
+                  },
+                  method="POST"
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as response:
+                      audio = response.read()
+              except urllib.error.HTTPError as e:
+                  detail = e.read().decode("utf-8", "replace")
+                  raise SystemExit(f"OpenAI API Fehler {e.code}: {detail}")
+              part = f"output/{name}_part_{i:03d}.mp3"
+              with open(part, "wb") as fh:
+                  fh.write(audio)
+              parts.append(part)
+              print(f"Teil {i}/{len(chunks)} erstellt.")
+
+          with open("output/concat.txt", "w", encoding="utf-8") as fh:
+              for part in parts:
+                  fh.write("file '" + os.path.basename(part) + "'\n")
+          print(f"{len(parts)} Audioteile bereit zum Zusammenführen.")
+
+      - name: Kapitelteile zusammenführen
+        shell: bash
+        run: |
+          cd output
+          ffmpeg -f concat -safe 0 -i concat.txt -c copy "${{ inputs.filename }}.mp3"
+          rm -f *_part_*.mp3 concat.txt
 
       - name: Hörbuchdatei bereitstellen
         uses: actions/upload-artifact@v4
