@@ -74,38 +74,29 @@ jobs:
           fmt = os.environ["FORMAT"].lower()
           safe = re.sub(r"[^A-Za-z0-9_-]+", "_", os.environ["FILENAME"]).strip("_") or "hoerbuch-track"
 
-          interaction = client.interactions.create(
+          response = client.models.generate_content(
               model="gemini-3.8-flash-tts",
-              input=[{
-                  "type": "user_input",
-                  "content": [{
-                      "type": "text",
+              contents=[{
+                  "role": "user",
+                  "parts": [{
                       "text": text,
-                      "annotations": [{
-                          "type": "speech_metadata",
+                      "speech_metadata": {
                           "style": "Sprich auf Deutsch. Warm, natürlich und professionell. Ruhig, freundlich und geborgen wie ein hochwertiges Kinder- und Gute-Nacht-Hörbuch. Lies nur den eigentlichen Text vor und keine Regieanweisungen."
-                      }]
-                  }]
+                      },
+                  }],
               }],
-              response_format={"type": "audio", "mime_type": "audio/wav"},
-              generation_config={"speech_config": [{"voice": voice}]},
+              config={
+                  "response_modalities": ["AUDIO"],
+                  "speech_config": {
+                      "voice_config": {"voice": voice}
+                  },
+              },
           )
 
-          audio = None
-          for item in getattr(interaction, "outputs", []) or []:
-              for part in getattr(item, "content", []) or []:
-                  data = getattr(part, "data", None)
-                  if data:
-                      audio = data
-                      break
-              if audio:
-                  break
-
-          if audio is None:
-              # SDK convenience path used by current Gemini responses.
-              audio = getattr(interaction, "audio", None)
-              if hasattr(audio, "data"):
-                  audio = audio.data
+          try:
+              audio = response.candidates[0].content.parts[0].inline_data.data
+          except Exception as exc:
+              raise RuntimeError(f"Gemini hat keine Audiodaten zurückgegeben: {exc}") from exc
 
           if not audio:
               raise RuntimeError("Gemini hat keine Audiodaten zurückgegeben.")
