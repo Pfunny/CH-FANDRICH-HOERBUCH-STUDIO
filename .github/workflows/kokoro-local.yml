@@ -1,4 +1,4 @@
-name: Hörbuch Kokoro Lokal
+name: Hörbuch Kokoro Cloud
 
 on:
   workflow_dispatch:
@@ -23,29 +23,35 @@ permissions:
 
 jobs:
   kokoro-local:
-    # Läuft ausschließlich auf einem Rechner/Server, den der Nutzer selbst
-    # als GitHub Actions self-hosted Runner registriert hat.
-    runs-on: [self-hosted, kokoro]
-    timeout-minutes: 120
+    # Läuft vollständig in GitHub Actions – Bedienung per Handy/Browser.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
 
     steps:
       - name: Repository laden
         uses: actions/checkout@v4
 
-      - name: Lokale Werkzeuge prüfen
+      - name: FFmpeg installieren
         shell: bash
         run: |
-          command -v curl >/dev/null || { echo "::error::curl fehlt."; exit 1; }
-          command -v ffmpeg >/dev/null || { echo "::error::ffmpeg fehlt."; exit 1; }
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
-      - name: KokoroTTS prüfen
+      - name: KokoroTTS in GitHub starten
         shell: bash
         run: |
-          if ! curl --fail --silent --max-time 10 http://127.0.0.1:7860/ >/dev/null; then
-            echo "::error::KokoroTTS ist lokal auf Port 7860 nicht erreichbar."
-            echo "Starte zuerst: docker compose -f docker-compose.kokoro.yml up -d"
-            exit 1
-          fi
+          docker compose -f docker-compose.kokoro.yml up -d
+          echo "Warte auf KokoroTTS..."
+          for i in {1..60}; do
+            if curl --silent --max-time 5 http://127.0.0.1:7860/ >/dev/null 2>&1; then
+              echo "KokoroTTS ist bereit."
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose -f docker-compose.kokoro.yml logs --tail=100 || true
+          echo "::error::KokoroTTS konnte im GitHub-Runner nicht gestartet werden."
+          exit 1
 
       - name: Text vorbereiten
         shell: bash
