@@ -53,6 +53,11 @@ jobs:
           TTS_TEXT: ${{ inputs.text }}
         run: printf '%s' "$TTS_TEXT" > input.txt
 
+      - name: FFmpeg installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
       - name: Gemini Sprache erzeugen
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
