@@ -8,16 +8,19 @@ on:
         required: true
         type: string
       voice:
-        description: "Gemini Stimme"
+        description: "Sprecherprofil"
         required: true
-        default: "Kore"
+        default: "Erzählerin – warm (Kore)"
         type: choice
         options:
-          - Kore
-          - Puck
-          - Charon
-          - Fenrir
-          - Aoede
+          - "Erzählerin – warm (Kore)"
+          - "Erzähler – freundlich (Puck)"
+          - "Erzähler – tief/ruhig (Charon)"
+          - "Männliche Figur – kraftvoll (Fenrir)"
+          - "Weibliche Figur – hell (Aoede)"
+          - "Junge Figur – lebendig (Puck)"
+          - "Ältere Figur – ruhig (Charon)"
+          - "Magische Figur – geheimnisvoll (Kore)"
       format:
         description: "Audioformat"
         required: true
@@ -75,7 +78,18 @@ jobs:
               raise SystemExit("Kein Text für die Sprachausgabe vorhanden.")
 
           client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-          voice = os.environ["VOICE"]
+          profile = os.environ["VOICE"]
+          voice_map = {
+              "Erzählerin – warm (Kore)": ("Kore", "warm, ruhig, natürlich und geborgen; professionelle deutsche Hörbuch-Erzählerin"),
+              "Erzähler – freundlich (Puck)": ("Puck", "freundlicher, natürlicher deutscher Hörbuch-Erzähler; klar und angenehm"),
+              "Erzähler – tief/ruhig (Charon)": ("Charon", "tiefe, ruhige, souveräne deutsche Erzählerstimme; langsamer und atmosphärisch"),
+              "Männliche Figur – kraftvoll (Fenrir)": ("Fenrir", "kraftvolle männliche deutsche Figurenstimme; ausdrucksstark, aber natürlich"),
+              "Weibliche Figur – hell (Aoede)": ("Aoede", "helle, freundliche weibliche deutsche Figurenstimme; lebendig und natürlich"),
+              "Junge Figur – lebendig (Puck)": ("Puck", "junge, lebendige deutsche Figurenstimme; neugierig, freundlich und emotional"),
+              "Ältere Figur – ruhig (Charon)": ("Charon", "älter wirkende, ruhige und weise deutsche Figurenstimme; warm und bedächtig"),
+              "Magische Figur – geheimnisvoll (Kore)": ("Kore", "geheimnisvolle, sanfte deutsche Fantasy-Figurenstimme; magisch und atmosphärisch"),
+          }
+          voice, role_style = voice_map.get(profile, ("Kore", "warm, natürlich und professionell"))
           fmt = os.environ["FORMAT"].lower()
           safe = re.sub(r"[^A-Za-z0-9_-]+", "_", os.environ["FILENAME"]).strip("_") or "hoerbuch-track"
 
@@ -86,7 +100,7 @@ jobs:
                   "parts": [{
                       "text": text,
                       "speech_metadata": {
-                          "style": "Sprich auf Deutsch. Warm, natürlich und professionell. Ruhig, freundlich und geborgen wie ein hochwertiges Kinder- und Gute-Nacht-Hörbuch. Lies nur den eigentlichen Text vor und keine Regieanweisungen."
+                          "style": f"Sprich auf Deutsch. {role_style}. Hochwertige Hörbuchproduktion. Lies ausschließlich den eigentlichen Text vor und keine Regieanweisungen."
                       },
                   }],
               }],
