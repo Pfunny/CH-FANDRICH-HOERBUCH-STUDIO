@@ -132,7 +132,7 @@ jobs:
               for raw in body.splitlines():
                   line=raw.strip()
                   if not line: continue
-                  m=re.match(r"^([^:\n]{1,40}):\s*(.+)$",line)
+                  m=re.match(r"^(?:\*\*)?([^:\n*]{1,40}):(?:\*\*)?\s*(.+)$",line)
                   if m: role,spoken=m.group(1).strip(),m.group(2).strip()
                   else: spoken=line
                   if out and out[-1][0]==role: out[-1]=(role,out[-1][1]+" "+spoken)
