@@ -1,0 +1,22 @@
+name: Studio 12 Qualitätsprüfung
+on:
+  push:
+    branches:
+      - feature/studio-dashboard-v12
+  pull_request:
+    paths:
+      - 'index.html'
+      - 'tests/**'
+      - '.github/workflows/studio-dashboard-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit- und HTML-Smoke-Tests
+        run: python -m unittest discover -s tests -v
