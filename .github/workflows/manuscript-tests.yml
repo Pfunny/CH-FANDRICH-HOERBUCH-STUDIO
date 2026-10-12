@@ -1,0 +1,26 @@
+name: Manuskriptprüfung
+on:
+  push:
+    branches:
+      - feature/hoerbuch-quality-check-11
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/manuscript-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit-Tests
+        run: python -m unittest discover -s tests -v
+      - name: Beispieldatei prüfen
+        run: |
+          printf 'Kapitel 6 – Die erste Prüfung\n**Erzähler:** Willkommen.\n**Elias:** Hallo.\n' > /tmp/kapitel.txt
+          python scripts/check_manuscript.py /tmp/kapitel.txt --strict
