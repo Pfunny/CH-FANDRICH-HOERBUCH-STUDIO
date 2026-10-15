@@ -26,12 +26,20 @@ class DashboardTests(unittest.TestCase):
 
     def test_workflow_and_version(self):
         self.assertIn("kokoro-local.yml", HTML)
-        self.assertIn("Hörbuch Studio 12.0", HTML)
+        self.assertIn("Hörbuch Studio 13.0", HTML)
         self.assertIn("speakerAssignments", HTML)
 
     def test_no_old_openai_model(self):
         self.assertNotIn("gpt-4o-mini-tts", HTML)
-        self.assertNotIn("AUDIOVORBEREITUNG · VERSION 11", HTML)
+        self.assertNotIn("AUDIOVORBEREITUNG · VERSION 12", HTML)
+
+    def test_german_voices(self):
+        for voice in ("df_eva", "dm_bernd", "dm_friedrich"):
+            self.assertIn(voice, HTML)
+
+    def test_kokoro_settings_transfer(self):
+        self.assertIn("copyKokoroSettings", HTML)
+        self.assertIn("pronunciationRules", HTML)
 
     def test_script_functions(self):
         for fn in ("extractRoles", "updateDashboard", "renderSpeakers", "exportTTSJob", "importFile", "render"):

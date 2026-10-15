@@ -1,0 +1,63 @@
+name: Hörbuch Piper Deutsch
+on:
+  push:
+    branches: [feature/studio-v13-kokoro-voices]
+    paths:
+      - 'scripts/piper_deutsch.py'
+      - '.github/workflows/piper-deutsch.yml'
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "Deutscher Hörbuchtext (kurzer Test empfohlen)"
+        required: true
+        type: string
+      voice:
+        description: "Deutsche Piper-Stimme"
+        required: true
+        default: "thorsten-medium"
+        type: choice
+        options:
+          - thorsten-low
+          - thorsten-medium
+          - thorsten-high
+          - pavoque-low
+          - ramona-low
+      filename:
+        description: "MP3-Dateiname"
+        required: true
+        default: "piper-deutsch"
+        type: string
+permissions:
+  contents: read
+jobs:
+  piper-deutsch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: FFmpeg installieren
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version
+      - name: Piper TTS installieren
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install piper-tts
+      - name: Deutsches Hörbuch produzieren
+        env:
+          INPUT_TEXT: ${{ inputs.text || 'Dies ist ein kurzer Test der deutschen Hörbuchstimme. Willkommen in Goldtal.' }}
+          VOICE: ${{ inputs.voice || 'thorsten-medium' }}
+          FILENAME: ${{ inputs.filename || 'piper-deutsch-test' }}
+        run: |
+          python scripts/piper_deutsch.py
+      - name: MP3 herunterladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: piper-deutsch-mp3
+          path: output/*.mp3
+          if-no-files-found: error
+          retention-days: 30

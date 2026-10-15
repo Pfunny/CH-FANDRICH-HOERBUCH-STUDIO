@@ -19,14 +19,27 @@ on:
       voice:
         description: "Hauptstimme / Erzähler"
         required: true
-        default: "af_heart"
+        default: "df_eva"
         type: choice
         options:
+          - df_eva
+          - dm_bernd
+          - dm_friedrich
           - af_heart
           - af_bella
           - af_nicole
           - am_adam
           - am_michael
+      speaker_voices:
+        description: 'Sprecherzuordnung als JSON, z. B. {"Elias":"am_adam","Mira":"af_bella"}'
+        required: false
+        default: "{}"
+        type: string
+      pronunciation_rules:
+        description: "Aussprachekorrekturen (Begriff=Ersatz; mehrere durch Semikolon)"
+        required: false
+        default: ""
+        type: string
       book_title:
         description: "Buchtitel"
         required: true
@@ -87,6 +100,8 @@ jobs:
 
       - name: Hörbuch produzieren
         env:
+          SPEAKER_VOICES: ${{ inputs.speaker_voices }}
+          PRONUNCIATION_RULES: ${{ inputs.pronunciation_rules }}
           MODE: ${{ inputs.mode }}
           VOICE: ${{ inputs.voice }}
           FILENAME: ${{ inputs.filename }}
@@ -106,11 +121,36 @@ jobs:
           safe=re.sub(r"[^A-Za-z0-9_-]+","_",os.environ["FILENAME"]).strip("_") or "kokoro-hoerbuch"
           outdir=pathlib.Path("output"); outdir.mkdir(exist_ok=True)
 
-          voices=[narrator,"af_bella","am_adam","af_nicole","am_michael"]
+          voices=[narrator,"df_eva","dm_bernd","dm_friedrich"]
+          allowed={"df_eva","dm_bernd","dm_friedrich","af_heart","af_bella","af_nicole","am_adam","am_michael"}
+          try:
+              requested=json.loads(os.environ.get("SPEAKER_VOICES","{}") or "{}")
+              if not isinstance(requested,dict): raise ValueError("Sprecherzuordnung muss ein JSON-Objekt sein")
+              if len(requested)>100: raise ValueError("Maximal 100 Sprecherzuordnungen")
+              overrides={}
+              for role,voice in requested.items():
+                  if not isinstance(role,str) or not role.strip() or len(role)>40: raise ValueError("Ungültiger Rollenname")
+                  if voice not in allowed: raise ValueError(f"Nicht unterstützte Kokoro-Stimme: {voice}")
+                  overrides[role.casefold().strip()]=voice
+          except (ValueError,TypeError) as e:
+              raise SystemExit(f"Fehler in Sprecherzuordnung: {e}")
+          rules=[]
+          for item in os.environ.get("PRONUNCIATION_RULES","").split(";"):
+              if not item.strip(): continue
+              if "=" not in item: raise SystemExit("Aussprache-Regeln müssen Begriff=Ersatz enthalten")
+              original,replacement=[p.strip() for p in item.split("=",1)]
+              if not original or not replacement: raise SystemExit("Leere Aussprache-Regel")
+              rules.append((original,replacement))
+          if len(rules)>100: raise SystemExit("Maximal 100 Aussprache-Regeln")
+          def apply_pronunciation(spoken):
+              for original,replacement in rules:
+                  spoken=spoken.replace(original,replacement)
+              return spoken
           role_voice={"erzähler":narrator,"erzaehler":narrator,"narrator":narrator}
           def voice_for(role):
               import hashlib
               k=role.casefold().strip()
+              if k in overrides: return overrides[k]
               if k in role_voice: return role_voice[k]
               # Stabil über das gesamte Buch und auch zwischen neuen Läufen:
               # derselbe Rollenname erhält immer dieselbe Stimme.
@@ -121,7 +161,7 @@ jobs:
               return v
 
           def tts(spoken,voice,path):
-              payload=json.dumps({"model":"kokoro","input":spoken,"voice":voice,"response_format":"wav","speed":1.0}).encode()
+              payload=json.dumps({"model":"kokoro","input":apply_pronunciation(spoken),"voice":voice,"response_format":"wav","speed":1.0}).encode()
               req=urllib.request.Request("http://127.0.0.1:7860/v1/audio/speech",data=payload,headers={"Content-Type":"application/json"},method="POST")
               with urllib.request.urlopen(req,timeout=600) as r: path.write_bytes(r.read())
               if not path.exists() or path.stat().st_size<1000: raise RuntimeError("Kokoro lieferte keine gültige Audiodatei.")
@@ -210,7 +250,7 @@ jobs:
               final=pathlib.Path(safe+".mp3"); produced.replace(final)
 
           manifest=["CH.FANDRICH Hörbuchstudio – Kokoro Cloud","",f"Titel: {book_title}",f"Autor: {author}",f"Modus: {mode}",f"Intro/Outro: {'Ja' if intro_outro else 'Nein'}","", "Sprecherbelegung:"]
-          manifest += [f"{role}: {voice}" for role,voice in role_voice.items()]
+          manifest += [f"{role}: {voice}" for role,voice in {**role_voice,**overrides}.items()]
           pathlib.Path(safe+"_produktion.txt").write_text("\n".join(manifest)+"\n",encoding="utf-8")
           print("Fertig:",final,final.stat().st_size,"Bytes")
           PY
