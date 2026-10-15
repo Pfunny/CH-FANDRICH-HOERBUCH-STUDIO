@@ -33,6 +33,10 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("gpt-4o-mini-tts", HTML)
         self.assertNotIn("AUDIOVORBEREITUNG · VERSION 12", HTML)
 
+    def test_german_voices(self):
+        for voice in ("df_eva", "dm_bernd", "dm_friedrich"):
+            self.assertIn(voice, HTML)
+
     def test_kokoro_settings_transfer(self):
         self.assertIn("copyKokoroSettings", HTML)
         self.assertIn("pronunciationRules", HTML)
