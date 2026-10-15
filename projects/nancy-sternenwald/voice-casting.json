@@ -1,0 +1,61 @@
+{
+  "project": "Nancy und das Geheimnis des Sternenwaldes",
+  "author": "Christopher Fandrich",
+  "language": "de-DE",
+  "target_audience": "Kinder ab 6 Jahren",
+  "chapters": 8,
+  "status": "voice-casting-prepared-not-rendered",
+  "source": "Phase-15-Produktionspaket; Volltext-Import und Wortabgleich noch erforderlich",
+  "roles": {
+    "ERZAEHLERIN": {
+      "character": "warm, märchenhaft, ruhig",
+      "speed": 0.95
+    },
+    "NANCY": {
+      "character": "freundlich, mutig, natürlich",
+      "speed": 1
+    },
+    "FIPS": {
+      "character": "frech, leicht rau, humorvoll",
+      "speed": 1.04
+    },
+    "MORVEN": {
+      "character": "tief, zunächst traurig, später warm",
+      "speed": 0.92
+    },
+    "AURELIA": {
+      "character": "sanft, würdevoll",
+      "speed": 0.94
+    },
+    "BAUM": {
+      "character": "alt, warm, langsam",
+      "speed": 0.85
+    },
+    "ELIN": {
+      "character": "hell, freundlich",
+      "speed": 1
+    },
+    "MIRA": {
+      "character": "sanft, fürsorglich",
+      "speed": 1
+    },
+    "WASSERWICHT": {
+      "character": "quirlig, gut verständlich",
+      "speed": 1.03
+    },
+    "LUMI": {
+      "character": "kindlich, fröhlich",
+      "speed": 1.02
+    },
+    "WALDBEWOHNER": {
+      "character": "neutral, besorgt",
+      "speed": 0.98
+    }
+  },
+  "production_notes": [
+    "Voice IDs erst nach deutschen Hörproben verbindlich festlegen",
+    "Regieanweisungen nicht vorlesen",
+    "Vorhandene Workflows unverändert lassen",
+    "Keine API-Schlüssel in Projektdateien speichern"
+  ]
+}
