@@ -19,9 +19,12 @@ on:
       voice:
         description: "Hauptstimme / Erzähler"
         required: true
-        default: "af_heart"
+        default: "df_eva"
         type: choice
         options:
+          - df_eva
+          - dm_bernd
+          - dm_friedrich
           - af_heart
           - af_bella
           - af_nicole
@@ -118,8 +121,8 @@ jobs:
           safe=re.sub(r"[^A-Za-z0-9_-]+","_",os.environ["FILENAME"]).strip("_") or "kokoro-hoerbuch"
           outdir=pathlib.Path("output"); outdir.mkdir(exist_ok=True)
 
-          voices=[narrator,"af_bella","am_adam","af_nicole","am_michael"]
-          allowed={"af_heart","af_bella","af_nicole","am_adam","am_michael"}
+          voices=[narrator,"df_eva","dm_bernd","dm_friedrich"]
+          allowed={"df_eva","dm_bernd","dm_friedrich","af_heart","af_bella","af_nicole","am_adam","am_michael"}
           try:
               requested=json.loads(os.environ.get("SPEAKER_VOICES","{}") or "{}")
               if not isinstance(requested,dict): raise ValueError("Sprecherzuordnung muss ein JSON-Objekt sein")
