@@ -1,5 +1,10 @@
 name: Hörbuch Piper Deutsch
 on:
+  push:
+    branches: [feature/studio-v13-kokoro-voices]
+    paths:
+      - 'scripts/piper_deutsch.py'
+      - '.github/workflows/piper-deutsch.yml'
   workflow_dispatch:
     inputs:
       text:
@@ -39,9 +44,9 @@ jobs:
           python -m pip install piper-tts
       - name: Deutsches Hörbuch produzieren
         env:
-          INPUT_TEXT: ${{ inputs.text }}
-          VOICE: ${{ inputs.voice }}
-          FILENAME: ${{ inputs.filename }}
+          INPUT_TEXT: ${{ inputs.text || 'Dies ist ein kurzer Test der deutschen Hörbuchstimme. Willkommen in Goldtal.' }}
+          VOICE: ${{ inputs.voice || 'thorsten-medium' }}
+          FILENAME: ${{ inputs.filename || 'piper-deutsch-test' }}
         run: |
           python scripts/piper_deutsch.py
       - name: MP3 herunterladen
